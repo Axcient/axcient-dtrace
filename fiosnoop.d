@@ -72,7 +72,7 @@ inline string FILENAME = "'$filename'";
 
 dtrace:::BEGIN
 {
-    printf("OpType|Filename|Bytes\n");
+    printf("T| Elapsed(us)|       Bytes|Filename\n");
 }
 
 fbt::fop_read:entry,
@@ -88,6 +88,7 @@ fbt::fop_read:entry,
 fbt::fop_write:entry
 /self->ok && args[0]->v_path/
 {
+    self->start = timestamp;
     self->pathname = cleanpath(args[0]->v_path);
     self->size = args[1]->uio_resid;
     self->uiop = args[1];
@@ -97,19 +98,21 @@ fbt::fop_write:entry
 fbt::fop_read:return
 /self->size/
 {
-    printf("R|%-70s|%10d\n", self->pathname, (self->size - self->uiop->uio_resid));
-    self->size = 0;
+    printf("R|%12d|%12d|%s\n", (timestamp - self->start)/1000, (self->size - self->uiop->uio_resid), self->pathname);
+    self->start = 0;
     self->uiop = 0;
     self->pathname = 0;
+    self->size = 0;
 }
 
 fbt::fop_write:return
 /self->size/
 {
-    printf("W|%-70s|%10d\n", self->pathname, (self->size - self->uiop->uio_resid));
-    self->size = 0;
+    printf("W|%12d|%12d|%s\n", (timestamp - self->start)/1000, (self->size - self->uiop->uio_resid), self->pathname);
+    self->start = 0;
     self->uiop = 0;
     self->pathname = 0;
+    self->size = 0;
 }
 
 fbt::fop_remove:entry
@@ -121,8 +124,19 @@ fbt::fop_remove:entry
 fbt::fop_remove:entry
 /self->ok/
 {
-    printf("D|%s/%s|%10d\n", cleanpath(args[0]->v_path), stringof(args[1]), 0);
-    self->ok = 0
+    self->start = timestamp;
+    self->pathname = cleanpath(args[0]->v_path);
+    self->entryname = cleanpath(args[1]);
+}
+
+fbt::fop_remove:return
+/self->start/
+{
+    printf("D|%12d|%12d|%s/%s\n", (timestamp - self->start)/1000, 0, self->pathname, self->entryname);
+    self->pathname = 0;
+    self->entryname = 0;
+    self->start = 0;
+    self->ok = 0;
 }
 
 '
